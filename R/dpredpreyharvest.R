@@ -25,12 +25,9 @@
 
 dpredpreyharvest = function(t, pop, pars) {
   with(as.list(c(pars,pop)), {
-    if (prey < pars$minprey) {
-      dprey = rprey*(1-prey/K)*prey -  alpha*prey*pred
-    }
-    else {
-      dprey = rprey*(1-prey/K)*prey -  alpha*prey*pred - pars$harv*prey
-    }
+    if (prey > thresh) {
+      dprey = (rprey*(1-prey/K)*prey -  alpha*prey*pred - harv*prey)}
+    else(dprey = (rprey*(1-prey/K)*prey -  alpha*prey*pred))
     dpred = eff*alpha*prey*pred - pmort*pred
     return(list(c(dprey,dpred)))})
 }

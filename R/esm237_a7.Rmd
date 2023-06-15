@@ -24,8 +24,10 @@ dpredpreyharvest
 
 ```
 
+
 ## Run Model for 200 years 
-Start with initial condition of 300 prey and 60 predators, rprey=0.95, alpha=0.01, eff=0.6,pmort=0.4, K=2000.
+
+Start with initial condition of 1 prey and 1 predator, rprey=0.95, alpha=0.01, eff=0.6,pmort=0.4, K=2000.
 
 ```{r}
 # set initial population size 
@@ -38,124 +40,37 @@ rprey = 0.95
 alpha = 0.01
 eff = 0.6
 pmort = 0.4
-K = 200
-minprey = 0.6
-harv = 0.3
+K = 2000
+thresh = 0.7
+harv = 0.1
 
 #convert to a dataframe
-pars <- cbind.data.frame(rprey, alpha, eff, pmort, K, minprey, harv)
+pars <- cbind.data.frame(rprey, alpha, eff, pmort, K, thresh, harv)
 
-# gets results for 300 years (evaluating every year)
-years <-seq(from=1, to=50)
+# gets results for 200 years (evaluating every year)
+years <-seq(from=1, to= 200)
 
 # run model for 50 years using ODE solver
 
-results <- ode(y = Pinitial, times = years, func= dpredpreyharvest, parms = parms)
+results <- ode(y = initialpop, times = years, func= dpredpreyharvest, parms = parms)
 head(results)
 
 # extract results
 res = as.data.frame(results) %>% gather(key="animal", value="pop",-time)
 
-ggplot(as.data.frame(res_test), aes(time, pop , col=animal))+geom_line()
+ggplot(as.data.frame(res), aes(time, pop , col=animal))+geom_line()
 ```
 
-4. Run a sensitivity analysis that explores how different hunting levels and different minimum prey populations (before hunting is allowed) are likely to effect the stability of the populations of both predator and prey.
 
 ## Sensitivity analysis of different hunting levels and minimum prey populations
 
-To reduce the output dimensionality for our sensitivity analysis, a stability metric must be defined. We decided to define stability as maintaining the prey population above 300 after 50 years
-
-```{r}
-# obtain parameters sets (from sobel)
-# want to learn about sensitivity to harvest rates and minimum prey population
-
-# set the number of parameters
-# all parameters are normally distributed w means as given above and sd of 0.1 of mean
-np = 200
-sd = 0.1
-
-minprey = rnorm(mean = 300, sd = minprey*sd, n = np)
-harv = rnorm(mean = 0.3, sd = harv*sd, n = np)
-X1 = cbind.data.frame(minprey = minprey, harv = harv)
-            
-
-# repeat to get second set of samples
-
-minprey = rnorm(mean = 300, sd = minprey*sd, n = np)
-harv = rnorm(mean = 0.3, sd = harv*sd, n = np)
-X2 = cbind.data.frame(minprey = minprey, harv = harv)
-
-# fix negatives since they aren't meaningful
-X1 = X1 %>% map_df(pmax, 0.0)
-X2 = X2 %>% map_df(pmax, 0.0)
-
-# create sobel object and get sets of parameters for running model 
-
-sens_P = sobolSalt(model = NULL, X1, X2, nboot = 300)
-
-# parameter sets are
-head(sens_P$X)
-
-# add names to columns
-
-colnames(sens_P$X) = c("minprey", "harv")
-
-head(sens_P$X)
-
-```
-
-```{r}
-
-### Run ODE with sobol object
-
-# define a wrapper function to do everything we need - run solver and compute metrics - and send back results for each parameter
-
-rprey = 0.95
-alpha = 0.01
-eff = 0.6
-pmort = 0.4
-K = 200
-minprey = 150
-harv = 0.3
-
-
-pop_wrapper = function (results, pop, pars, times, Pinitial, func){
-  pars = list( rprey = rprey, alpha = alpha, eff = eff, pmort = pmort, K = K, minprey = minprey, harv = harv)
-  results = ode(y = Pinitial, times = years, func = func, parms = pars)
-  colnames(results) = c("time", "prey", "predator")
-  
-  #get metrics
-  
-  results = as.data.frame(results)
-  stable_prey = mean(results$prey)
-  return(list(stable_prey = stable_prey))
-}
-
-# use pmap
-
-all_results = as.data.frame(sens_P$X) # order of operations will assume this is the list we are referring to for pmap|
-
-
-allres = all_results  %>%  pmap(pop_wrapper, results = all_results, Pinitial = Pinitial, times = years, func = dpredpreyharvest)
-
-# extract out results from pmap into a data frame
-final_allres = allres %>% map_dfr(`[`,c("stable_prey"))
-
-```
-
-
-## Establishing a Stability Metric
-
-For the purposes of this assignmnent we decided to define stability as maintaining the prey population above 500 after 50 years
-
-```{r}
-
-```
+We decided to define stability as maintaining the prey population above 300 after 50 years
 
 
 ```{r}
 # set parameter list
-pars = data.frame(rprey = 0.95, alpha = 0.01, eff = 0.6, pmort = 0.4, K = 2000)
+pars = data.frame(rprey = 0.95, alpha = 0.01, eff = 0.6, pmort = 0.4, K = 200, thresh = 100, harv = 0.3)
+
 
 # now lets try initial conditions that will be stable
 preyi = with(pars, pmort/(eff*alpha)) 
@@ -166,50 +81,109 @@ predi
 
 # times when you want to evaluate
 years = seq(from=1,to=50)
+
+# stable prey = 66.6
+# stable pred = 63.3
 ```
+
 
 
 ```{r}
-# establish different harvest rates
 
-lowHrate = 0.015
-gps = list(harv = lowHrate, rprey = 0.95, alpha = 0.01, eff = 0.6, pmort = 0.4, K = 2000)
+#use a wrapper function with pmap
 
-# look at the derivative over a range of forest sizes
+#threshold list
+thresh_l <- seq(from = 10, to = 150, by = 1)
 
-findstable = data.frame(Pcurr=seq(from=1, to=100, by=5))
+#wrapper function
+harvest_wrapper <- function(t, func, pop, rprey, alpha, eff, pmort, K, harv, thresh) {
+    pars <- list(rprey=rprey, alpha=alpha, eff=eff, pmort=pmort, K=K, harv = harv, thresh = thresh)
+    
+    #run the ode solver
+    result <- ode(y = pop, times = years, func = func, parms = pars, maxsteps = 500) 
+  
+    #turn into dataframe and get max value
+    result <- as.data.frame(result)
+    colnames(result) = c("time", "prey", "pred")
+    final_pop <- max(result$prey)
+    
+    return(final_pop)
+}
 
-findstable$dervHlow= unlist(findstable$Pcurr %>% map(~lotvmodKH(parms=gps, Time=NULL, population=.x) ))
+#use pmap to apply wrapper to all parameter sets
+
+years <- seq(from=1, to=50)
+
+pars = data.frame(rprey = 0.95, alpha = 0.01, eff = 0.6, pmort = 0.4, K = 200, thresh = 100, harv = 0.3)
 
 
-highHrate=0.05
-gps = list(harv=highHrate, rprey = 0.95, alpha = 0.01, eff = 0.6, pmort = 0.4, K = 2000)
+#setting initial population values
+intitalpred <- with(pars, pmort/(eff*alpha))
+intialprey <- with(pars, rprey/alpha*(1-predi/K))
+intitalpop <- c(prey = as.integer(preyi), pred = as.integer(predi))
 
+all_results <- pars %>% 
+  pmap(harvest_wrapper, t = years, func = dpredpreyharvest, pop = initialpop)
 
-# plot them all together
+all_results_df <- as.data.frame(all_results)
+```
 
-tmp = gather(findstable, key="HarvestRate", value="value", -Ccurr)
-ggplot(tmp, aes(Ccurr, value, color=HarvestRate))+geom_point()+geom_hline(yintercept = 0, col="black")+
-  labs(x="Forest Biomass (kgC)", y="Forest Growth Rate (kgC/year)")
+### Different Levels of Hunting
 
-# establish different minimum prey populations (before hunting is allowed)
+```{r}
+#use a wrapper function with pmap
 
+#harvest list
+harvest_l <- seq(from = 0.05, to = 0.50, by = 0.01)
+
+#use pmap to apply wrapper to all parameter sets
+
+years <- seq(from=1, to=50)
+
+pars_harv_l <- list(rprey=0.95, alpha=0.01, eff=0.6, pmort=0.4, K=200, harvest = harvest_l, thresh = 66)
+
+pars_harv_df <- as.data.frame(pars_harv_l)
+
+#set initial population values
+predi <- with(pars_harv_l, pmort/(eff*alpha))
+preyi <- with(pars_harv_l, rprey/alpha*(1-predi/K))
+pop <- c(prey = as.integer(preyi), pred = as.integer(predi))
+
+results_harv <- pars_harv_df %>% 
+  pmap(harvest_wrapper, t = ears, func = dpredpreyharvest, pop = pop)
+
+all_results_df_h <- dplyr::bind_rows(results_harv, .id = "pars") %>% 
+  cbind(as.data.frame(harvest_l)) %>% 
+  filter(time == 50)
+```
+
+## Plot final ode run
+
+```{r}
+#selected parameters
+pars_final <- list(rprey=0.95, alpha=0.01, eff=0.6, pmort=0.4, K=2000, harvest = 0.13, thresh = 61)
+
+#set initial population values
+predi <- with(pars_graph, pmort/(eff*alpha))
+preyi <- with(pars_graph, rprey/alpha*(1-predi/K))
+pop <- c(prey = as.integer(preyi), pred = as.integer(predi))
+
+#run times
+times <- 1:250
+
+#run the ode
+results <- ode(y = pop, times = times, func = dpredpreyharvest, parms = pars_graph, maxsteps = 500000)
+
+plot_df <- as.data.frame(graph_result) %>% 
+  pivot_longer(-time, names_to = "animal", values_to = "pop")
+
+ggplot(plot_df, aes(time, pop, col=animal)) + 
+  geom_line() + 
+  labs(x = "Time (days)", 
+       y = "Population")
 
 ```
 
 
-1) build model
-2) how stable are things for different minimum pop and hunting
-    sensitivity analysis with these two processes
-    of what --- 
-3) write a function that takes output of model and extracts your definition of stability
- --- if mean pop is above some threshold for X amount of years
- -- or X pop over a certain time
- -- average pop for 5 years
- -- how does this vary with parameters
- --- mean and variance 
-4)
-5)
-6)
 
 
